@@ -5,8 +5,10 @@ CGraphicProcess::CGraphicProcess()
 	m_gpToken = NULL;
 	m_order.clear();
 	m_images.clear();
-	m_texts.clear();
 	m_controls.clear();
+	m_hyperTexts.clear();
+
+	InitHyperTextFonts();
 	memset(m_fontD, 0, sizeof(m_fontD));
 	
 }
@@ -48,29 +50,22 @@ void CGraphicProcess::Cleanup()
 		}
 		m_controls.clear();
 	}
-	if (m_texts.empty() == false)
+	if (m_hyperTexts.empty() == false)
 	{
-		for (std::list<customText>::iterator iter = m_texts.begin(); iter != m_texts.end(); iter++)
+		for (std::list<gHyperText>::iterator iter = m_hyperTexts.begin(); iter != m_hyperTexts.end(); iter++)
 		{
-			delete[](iter->_text);
+			DestroyWindow(iter->_hRichEdit);
+			//CloseHandle(iter->_hRichEdit);
+
+			delete[] iter->_text;
 		}
-		m_texts.clear();
+		m_hyperTexts.clear();
 	}
 }
 
-void CGraphicProcess::SetOrder(int order)
+void CGraphicProcess::SetOrder(eOrder order)
 {
 	m_order.push_back(order);
-}
-
-void CGraphicProcess::RegisterTexts(char* texts, HFONT font)
-{
-	customText ct;
-	ct._length = strlen(texts);
-	ct._text = new WCHAR[ct._length + 1];
-	mbstowcs(ct._text, texts, ct._length + 1);				// GDI+ 는 text를 등록할 때 WCHAR*로 등록되기 때문에 char* -> WCHAR*로 변환
-	ct._font = font;
-	m_texts.push_back(ct);
 }
 
 void CGraphicProcess::RegisterImages(char* filename)
@@ -88,42 +83,63 @@ void CGraphicProcess::RegisterControls(HWND hWnd)
 	m_controls.push_back(hWnd);								// 단순히 control handle 등록
 }
 
+void CGraphicProcess::RegisterHyperTexts(HWND hRichEdit, char* text, HFONT hFont)
+{
+	gHyperText tmpHt;
+
+	tmpHt._hFont = hFont;
+	tmpHt._hRichEdit = hRichEdit;
+	tmpHt._text = new char[strlen(text) + 1];
+
+	m_hyperTexts.push_back(tmpHt);
+}
+
 void CGraphicProcess::DrawImages(HDC hdc, RECT rt)
 {
 	int maxHeight = 0;
-	std::list<int>::iterator orderIter;
-	std::list<customText>::iterator textIter;
+	std::list<eOrder>::iterator orderIter;
 	std::list<Image*>::iterator imageIter;
 	std::list<HWND>::iterator controlIter;
+	std::list<gHyperText>::iterator hyperTextIter;
 
 	HWND hWnd;
-	HWND preHwnd;
 	RECT rc;
 
 	PointF pf;
 	SolidBrush blackBrush(Color(255, 0, 0, 0));
+	HFONT hOldFont;
+	char tmpBuf[BUFSIZ] = { 0, };
 
 	pf.X = m_sPoint.X;
 	pf.Y = m_sPoint.Y + 50.0f;
 	Graphics graphics(hdc);
 
-	textIter = m_texts.begin();
 	imageIter = m_images.begin();
 	controlIter = m_controls.begin();
+	hyperTextIter = m_hyperTexts.begin();
 
 	for (orderIter = m_order.begin(); orderIter != m_order.end(); orderIter++)							// order를 확인한 뒤, order에 맞춰 text, image, control을 그려준다.
 	{
-		if ((*orderIter == TEXTN) && (textIter != m_texts.end()))
+		if ((*orderIter == HYPERTEXTN) && (hyperTextIter != m_hyperTexts.end()))
 		{
-			Font tmpFont(hdc, textIter->_font);
-			graphics.DrawString((textIter->_text), textIter->_length, &tmpFont, pf, &blackBrush);
-
-			pf.X += textIter->_length * (tmpFont.GetSize() + 1)/ 2;										// 그려준 뒤 좌표 갱신
-			if (maxHeight < tmpFont.GetHeight(&graphics))
+			memset(tmpBuf, 0, sizeof(tmpBuf));
+			hOldFont = (HFONT)SelectObject(hdc, hyperTextIter->_hFont);
+			memset(&rc, 0, sizeof(RECT));
+			GetWindowText(hyperTextIter->_hRichEdit, tmpBuf, BUFSIZ);
+			DrawText(hdc, tmpBuf, strlen(tmpBuf), &rc, DT_CALCRECT | DT_EDITCONTROL | DT_SINGLELINE | DT_CENTER); 	// text를 찍기 위해서가 아니라 text의 범위(rect)를 얻어오기 위함.
+			
+			hWnd = hyperTextIter->_hRichEdit;
+			
+			SetWindowPos(hWnd, 0, pf.X, pf.Y, rc.right + 5, rc.bottom, SWP_NOZORDER | SWP_SHOWWINDOW);
+			memset(&rc, 0, sizeof(RECT));
+			GetClientRect(hWnd, &rc);
+			pf.X += rc.right;
+			if (maxHeight < rc.bottom )
 			{
-				maxHeight = tmpFont.GetHeight(&graphics);
+				maxHeight = rc.bottom;
 			}
-			textIter++;
+			hyperTextIter++;
+			SelectObject(hdc, hOldFont);
 		}
 		else if ((*orderIter == IMAGEN) && (imageIter != m_images.end()))
 		{
@@ -138,12 +154,14 @@ void CGraphicProcess::DrawImages(HDC hdc, RECT rt)
 		}
 		else if ((*orderIter == CONTROLN) && (controlIter != m_controls.end()))
 		{
-
+			memset(&rc, 0, sizeof(RECT));
 			hWnd = *controlIter;
-			GetClientRect(hWnd, &rc);
-			SetWindowPos(hWnd, 0, pf.X + rc.right / 2, pf.Y + rc.bottom, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_SHOWWINDOW);
 			
-			pf.X += rc.right + 10;
+			GetClientRect(hWnd, &rc);
+			SetWindowPos(hWnd, 0, pf.X, pf.Y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_SHOWWINDOW);
+			
+			
+			pf.X += rc.right;
 
 			if (maxHeight < rc.bottom)
 			{
@@ -179,12 +197,16 @@ void CGraphicProcess::MakeFonts()
 {
 	m_fontD[0] = CreateFont(15, 0, 0, 0, 0, 0, 0, 0, HANGEUL_CHARSET, 3, 2, 1,
 		VARIABLE_PITCH | FF_ROMAN, "default");
+	
 
 	m_fontD[1] = CreateFont(30, 0, 0, 0, 0, 0, 0, 0, HANGEUL_CHARSET, 3, 2, 1,
 		VARIABLE_PITCH | FF_ROMAN, "second");
+
+	m_fontD[2] = CreateFont(20, 0, 0, 0, FW_BOLD, 0, 0, 0, HANGEUL_CHARSET, 3, 2, 1,
+		VARIABLE_PITCH | FF_ROMAN, "linked");
 }
 
-HFONT CGraphicProcess::GetHfont(int order)
+HFONT CGraphicProcess::GetHFont(int order)
 {
 	return m_fontD[order];
 }
@@ -198,8 +220,36 @@ void CGraphicProcess::SetsPoint(bool init, float x, float y)
 	}
 	else
 	{
-		m_sPoint.X += x;
+		//m_sPoint.X = x;
 		m_sPoint.Y += y;
 	}
 }
 
+void CGraphicProcess::InitHyperTextFonts()
+{
+	memset(&m_hyperTextFormat[0], 0, sizeof(m_hyperTextFormat[1]));
+	m_hyperTextFormat[0].cbSize = sizeof(CHARFORMAT2);
+	m_hyperTextFormat[0].dwMask = CFM_COLOR | CFM_UNDERLINE | CFM_BOLD;
+	m_hyperTextFormat[0].dwEffects = CFE_BOLD;
+	m_hyperTextFormat[0].crTextColor = COLORREF(RGB(255, 0, 0));
+	m_hyperTextFormat[0].bUnderlineType = CFU_UNDERLINENONE;
+
+	memset(&m_hyperTextFormat[1], 0, sizeof(m_hyperTextFormat[0]));
+	m_hyperTextFormat[1].cbSize = sizeof(CHARFORMAT2);
+	m_hyperTextFormat[1].dwMask = CFM_COLOR | CFM_UNDERLINE | CFM_BOLD;
+	m_hyperTextFormat[1].crTextColor = COLORREF(RGB(0, 0, 255));
+	m_hyperTextFormat[1].dwEffects = CFE_BOLD | CFE_UNDERLINE;
+	m_hyperTextFormat[1].bUnderlineColor = COLORREF(RGB(0, 0, 255));
+	m_hyperTextFormat[1].bUnderlineType = CFU_UNDERLINE;
+}
+
+CHARFORMAT2 CGraphicProcess::GetHyperTextFonts(int state)
+{
+	switch (state)
+	{
+	case 0:
+		return m_hyperTextFormat[0];
+	case 1:
+		return m_hyperTextFormat[1];
+	}
+}

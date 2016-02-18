@@ -290,8 +290,18 @@ int CWebSocket::GetResponseBufferLength()
 
 bool CWebSocket::CheckUrlFormat()
 {
-	if (m_uriBuffer[0] == 'h')
+	char* p = NULL;
+
+	if (strcmp(m_uriBuffer, "www.homepage.com") == 0)
 	{
+		sprintf_s(m_uriBuffer, "http://52.192.132.151:8090/index.html");
+		return true;
+	}
+
+	p = strstr(m_uriBuffer, "http://");
+
+	if (p != NULL)
+	{ 
 		m_uriFlag = false;
 		return true;
 	}

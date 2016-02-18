@@ -36,7 +36,7 @@
     <ClInclude Include="ParsingData.h">
       <Filter>헤더 파일</Filter>
     </ClInclude>
-    <ClInclude Include="CMainSystem.h">
+    <ClInclude Include="CHyperTextHandler.h">
       <Filter>헤더 파일</Filter>
     </ClInclude>
   </ItemGroup>
@@ -59,7 +59,7 @@
     <ClCompile Include="MainWindow.cpp">
       <Filter>소스 파일</Filter>
     </ClCompile>
-    <ClCompile Include="CMainSystem.cpp">
+    <ClCompile Include="CHyperTextHandler.cpp">
       <Filter>소스 파일</Filter>
     </ClCompile>
   </ItemGroup>

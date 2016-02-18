@@ -376,6 +376,10 @@ void CHtmlParser::WriteImageFile()				// image 파일 local disk에 저장
 
 int CHtmlParser::ExtensionCheck()
 {
+	if (m_extension == NULL)
+	{
+		return -1;
+	}
 	if (strcmp(m_extension, HTMLE) == 0)
 	{
 		return HTMLM;
