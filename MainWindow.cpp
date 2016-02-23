@@ -14,17 +14,18 @@
 #define URILENGTH 1024					// 임시 URI buffer 크기
 #define SCROLLVALUE 10					// 스크롤 시 이동 unit size
 // 전역 변수:
-
+LPCSTR lpszClass = "MainWindow";
+LPCSTR lpszChildView = "ChildView";
 // custom variable
 
 char uriStr[URILENGTH];					// URI 입력 버퍼
 HWND hEdit;								// URI 입력용 Edit handle
 HWND hUriStatic;
-HWND g_hWnd;							// main window handle
-HWND g_hClientWnd;
+HWND hMainWnd;							// main window handle
+HWND hChildView;						// childView
 HINSTANCE g_hInst;						// main process handle
 WNDPROC OldEditProc;					// 임시 Procedure 함수 저장 변수
-WNDPROC RichEditOldProc;				// rich edit의 원래 proc
+WNDPROC OldRichEditProc;				// rich edit의 원래 proc
 CWebSocket socketProcessor;
 CHtmlParser htmlParser;
 CBodySpliter bodySpliter;
@@ -38,8 +39,10 @@ bool badRequestDrawFlag;				// Bad Request 시
 // ================
 
 // 이 코드 모듈에 들어 있는 함수의 정방향 선언입니다.
-LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);								// main window의 procedure
+LRESULT CALLBACK MainWndProc(HWND, UINT, WPARAM, LPARAM);
+LRESULT CALLBACK ChildViewProc(HWND, UINT, WPARAM, LPARAM);								// main window의 procedure
 LRESULT CALLBACK EditSubProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam);	// edit control의 procedure
+LRESULT CALLBACK RichEditSubProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam);
 
 // custom function
 void InitWindow(HINSTANCE hInstance, int nCmdShow);			// window 생성
@@ -49,14 +52,15 @@ void SetTitle();											// window의 title 설정
 void MakeImageUri(char* data);								// Image request를 하기 위한 URI 버퍼 채우기
 void MakeUri(char* uri);									// 범용적인 URI 버퍼 채우기
 void OkProc();												// response가 OK일 때 procedure
-void ScrollEvent(HWND hWnd, WPARAM wParam);					// scroll event 처리
+void ScrollEvent(HWND hWnd, WPARAM wParam, bool whichOne);					// scroll event 처리
+void SetScrollDrawing();
 void FillObjectData(std::list<char*>* data);				// <tag>에 따른 데이터 처리 procedure
 															// Graphic 등록, Form handler 등록, text 등록 등등
 void SubmitProc(WPARAM wParam);								// Form 태그의 Submit 할 시(button down)의 처리
 
-void OnHyperText(HWND hWnd);
-void LeavingHyperText(HWND hWnd);
-void TrackMouse(HWND hwnd);
+void OnHyperText(HWND hWnd);								// 마우스가 Hyper Text위에 있을 때
+void LeavingHyperText(HWND hWnd);							// 마우스가 Hyper Text를 떠났을 때
+void TrackMouse(HWND hwnd);									
 
 void HyperLinkEvent(HWND hWnd);
 // ================
@@ -82,14 +86,6 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 
 	InitWindow(hInstance, nCmdShow);
 
-	if (htHandler.InitHTHandler(g_hWnd, g_hInst) == false)
-	{
-		printf("hyper text init error\n");
-		socketProcessor.Cleanup();
-		renderer.ShutDownGdi();
-
-		return 1;
-	}
 	while (GetMessage(&Message, NULL, 0, 0)) {
 		TranslateMessage(&Message);
 		DispatchMessage(&Message);
@@ -100,168 +96,6 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 
 	htHandler.EndModule();
 	return (int)Message.wParam;
-}
-
-
-LRESULT CALLBACK EditSubProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
-{
-	static bool flag = false;
-	RECT rc = { 0, };
-	char className[BUFSIZE] = { 0, };
-	GetClassName(hWnd, className, BUFSIZE);
-	switch (iMessage)
-	{
-	case WM_LBUTTONDOWN:
-	{
-		if (strcmp(className, RICHEDIT_CLASS) == 0)
-		{
-			flag = false;
-			HyperLinkEvent(hWnd);
-			return 0;
-		}
-		break;
-	}
-	case WM_MOUSEMOVE:
-	{
-		if (strcmp(className, RICHEDIT_CLASS) == 0)
-		{
-			SetCursor(LoadCursor(NULL, IDC_HAND));
-			if (flag == false)
-			{
-				printf("ENTERED\n");
-				TrackMouse(hWnd);
-				OnHyperText(hWnd);
-				flag = true;
-			}
-			break;
-		}
-	}
-	case WM_MOUSELEAVE:
-	{
-		if (strcmp(className, RICHEDIT_CLASS) == 0)
-		{
-			if (flag == true)
-			{
-				printf("mouseLeave\n");
-				LeavingHyperText(hWnd);
-				flag = false;
-			}
-			break;
-		}
-	}
-	case WM_KEYDOWN:
-		if (wParam == VK_RETURN)						// Enter시 edit에 입력되어 있는 string으로 접속 및 URI GET 요청
-		{
-			drawFlag = false;
-			notFoundDrawFlag = false;
-			badRequestDrawFlag = false;
-
-			bodySpliter.Cleanup();
-			socketProcessor.MemoryClear();
-			htmlParser.Cleanup();
-			eventHandler.Cleanup();
-			renderer.Cleanup();
-			htHandler.Cleanup();
-
-			memset(uriStr, 0, sizeof(uriStr));
-			GetWindowText(hWnd, uriStr, URLLENGTH);		// edit control로 부터 URI 입력
-			SendMessage(g_hWnd, WM_USER + 1, 0, 0);		// main window에 event message 전달
-			return 0;
-		}
-	}
-
-	if (strcmp(className, RICHEDIT_CLASS) == 0)
-	{
-		return CallWindowProc(RichEditOldProc, hWnd, iMessage, wParam, lParam);
-	}
-	else
-	{
-		return CallWindowProc(OldEditProc, hWnd, iMessage, wParam, lParam);
-	}
-}
-
-LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
-{
-	switch (message)
-	{
-	case WM_CREATE:
-	{
-		RECT rc = { 0, };
-		GetClientRect(hWnd, &rc);
-
-		hEdit = CreateWindow("edit", NULL, WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL,		// URI 입력용 edit control 생성
-			rc.left + 50, 10, rc.right - 100, 25, hWnd, (HMENU)ID_URI, g_hInst, NULL);
-
-		hUriStatic = CreateWindow("static", "URI", WS_CHILD | WS_VISIBLE | WS_BORDER | SS_CENTER, 0, 10, 50, 25, hWnd, (HMENU)ID_STATIC, g_hInst, NULL);
-		SetFocus(hEdit);
-
-		OldEditProc = (WNDPROC)SetWindowLongPtr(hEdit, GWLP_WNDPROC, (LONG_PTR)EditSubProc);		// edit control 상의 enter 처리를 해주기 위해 
-																									// procedure를 edit control의 procedure로 intercept.
-		return 0;
-	}
-	case WM_LBUTTONDOWN:
-	{
-		SetFocus(hWnd);
-		return 0;
-	}
-	case WM_COMMAND:																					// <form>의 submit(button control)의 처리
-	{
-		if (eventHandler.IsActionPushed(wParam) == true)												// eventHandler에서 Submit 버튼이 눌려졌는지 확인
-		{
-			SubmitProc(wParam);																		// <form>의 action을 method를 통해 요청
-		}
-		return 0;
-	}
-	case WM_VSCROLL:																					// 상하 scroll 이벤트 처리
-	{
-		ScrollEvent(hWnd, wParam);
-		return 0;
-	}
-	case WM_USER + 1:																					// custom event : edit control에서 enter를 통해 GET 요청시 이벤트 처리
-	{
-		socketProcessor.SetRequestFlag(0);																		// 0으로 Set시 GET 요청
-		RequestProc();																				// Request 처리의 주요 procedure
-		SetTitle();																					// window title 변경
-		InvalidateRect(hWnd, NULL, true);
-		return 0;
-	}
-	case WM_PAINT:
-	{
-		RECT editRect = { 0, };
-		PAINTSTRUCT ps;
-		RECT rc = { 0, };
-
-		GetClientRect(hEdit, &editRect);
-		GetClientRect(hWnd, &rc);
-
-
-		HDC hdc = BeginPaint(hWnd, &ps);
-
-		ExcludeClipRect(hdc, rc.left, rc.top, rc.right, editRect.bottom + 20);						// 상위의 URI 입력용 edit control이 있는 영역은 제외하고 redraw.
-
-		if (drawFlag == true)																		// OK시에 그려줌
-		{
-			renderer.DrawImages(hdc, rc);
-		}
-		else if (notFoundDrawFlag == true)
-		{
-			TextOut(hdc, 50, 50, "Not Found", strlen("Not Found"));
-		}
-		else if (badRequestDrawFlag == true)
-		{
-			TextOut(hdc, 50, 50, "Bad Request", strlen("Bad Request"));
-		}
-		EndPaint(hWnd, &ps);
-		return 0;
-	}
-	case WM_DESTROY:
-		PostQuitMessage(0);
-		return 0;
-	default:
-		return DefWindowProc(hWnd, message, wParam, lParam);
-	}
-
-	return 0;
 }
 
 void RequestProc()
@@ -311,7 +145,7 @@ void RequestProc()
 	{
 		OkProc();
 		RECT rc = { 0, };
-		GetClientRect(g_hWnd, &rc);
+		GetClientRect(hChildView, &rc);
 		renderer.SetsPoint(true, rc.left, rc.top);		// 출력 좌표 초기화
 		drawFlag = true;
 		break;
@@ -377,7 +211,7 @@ void SetTitle()
 {
 	if (htmlParser.IsTitleNull() == false)
 	{
-		SetWindowText(g_hWnd, htmlParser.GetTitleName());
+		SetWindowText(hMainWnd, htmlParser.GetTitleName());
 	}
 }
 
@@ -422,42 +256,119 @@ void MakeUri(char* uri)
 
 
 
-void ScrollEvent(HWND hWnd, WPARAM wParam)
+void ScrollEvent(HWND hWnd, WPARAM wParam, bool whichOne)
 {
-	static int scrollPos = 0;
+	static int scrollYPos = 0;
+	static int scrollXPos = 0;
+
+	int yInc;
+	int xInc;
+	int yMax;
+	int xMax;
+
 	RECT rc = { 0, };
-	RECT winRC = { 0, };
-
-	GetClientRect(hEdit, &rc);
-	GetClientRect(hWnd, &winRC);
-
-	winRC.top = winRC.top + rc.bottom + 10;
-	switch (LOWORD(wParam))
+	GetClientRect(hWnd, &rc);
+	if (whichOne == true)					// 상하 스크롤
 	{
-
-	case SB_LINEUP:
-	{
-		if (scrollPos > 0)
-		{
-			scrollPos -= SCROLLVALUE;
-			renderer.SetsPoint(false, 0, SCROLLVALUE);
-			ScrollWindow(hWnd, 0, SCROLLVALUE, &winRC, &rc);
+		yInc = 0;
+		yMax = rc.bottom;
+		switch (LOWORD(wParam)) {
+		case SB_LINEUP:
+			yInc = -10;
+			break;
+		case SB_LINEDOWN:
+			yInc = 10;
+			break;
+		case SB_PAGEUP:
+			yInc = -20;
+			break;
+		case SB_PAGEDOWN:
+			yInc = 20;
+			break;
+		case SB_THUMBTRACK:
+			yInc = HIWORD(wParam) - scrollYPos;
+			break;
 		}
-		break;
+		if (scrollYPos + yInc < 0)
+		{
+			yInc = -scrollYPos;
+		}
+		if (scrollYPos + yInc > yMax)
+		{
+			yInc = yMax - scrollYPos;
+		}
+		scrollYPos = scrollYPos + yInc;
+		
+		GetClientRect(hWnd, &rc);
+		ScrollWindow(hWnd, 0, -yInc, NULL, NULL);
+		renderer.SetsPoint(false, 0, -yInc);
+		SetScrollPos(hWnd, SB_VERT, scrollYPos, TRUE);
+		InvalidateRect(hWnd, NULL, true);
 	}
-	case SB_LINEDOWN:
+	else
 	{
-		scrollPos += SCROLLVALUE;
-		renderer.SetsPoint(false, 0, -SCROLLVALUE);
-
-		ScrollWindow(hWnd, 0, -SCROLLVALUE, &winRC, &rc);
-		break;
+		xInc = 0;
+		xMax = rc.right;
+		switch (LOWORD(wParam)) {
+		case SB_LINELEFT:
+			xInc = -10;
+			break;
+		case SB_LINERIGHT:
+			xInc = 10;
+			break;
+		case SB_PAGELEFT:
+			xInc = -20;
+			break;
+		case SB_PAGERIGHT:
+			xInc = 20;
+			break;
+		case SB_THUMBTRACK:
+			xInc = HIWORD(wParam) - scrollXPos;
+			break;
+		}
+		if (scrollXPos + xInc < 0)
+		{
+			xInc = -scrollXPos;
+		}
+		if (scrollXPos + xInc > xMax)
+		{
+			xInc = xMax - scrollXPos;
+		}
+		scrollXPos = scrollXPos + xInc;
+		ScrollWindow(hWnd, 0, -xInc, NULL, NULL);
+		renderer.SetsPoint(false, -xInc, 0);
+		SetScrollPos(hWnd, SB_HORZ, scrollXPos, TRUE);
+		InvalidateRect(hWnd, NULL, true);
 	}
-	}
-	SetScrollPos(hWnd, SB_VERT, scrollPos, true);
-	InvalidateRect(hWnd, &winRC, true);
 }
 
+void SetScrollDrawing()
+{
+	RECT rc;
+
+	GetClientRect(hChildView, &rc);
+	if (renderer.GetXScrollMax() > rc.right)
+	{
+		SetScrollRange(hChildView, SB_HORZ, 0, rc.right, TRUE);
+		SetScrollPos(hChildView, SB_HORZ, 0, TRUE);
+		//renderer.SetsPoint(true, 0, 0);
+	}
+	else
+	{
+		SetScrollRange(hChildView, SB_HORZ, 0, 0, TRUE);
+	}
+
+	if (renderer.GetYScrollMax() > rc.bottom)
+	{
+		SetScrollRange(hChildView, SB_VERT, 0, renderer.GetYScrollMax(), TRUE);
+		SetScrollPos(hChildView, SB_VERT, 0, TRUE);
+		//renderer.SetsPoint(true, 0, 0);
+	}
+	else
+	{
+		SetScrollRange(hChildView, SB_VERT, 0, 0, TRUE);
+	}
+}
 void FillObjectData(std::list<char*>* data)
 {
 	HWND hWnd;
@@ -499,7 +410,7 @@ void FillObjectData(std::list<char*>* data)
 			else if (strstr(*iter, "<input") != NULL)	// form event에서 control 등록 과 동시에 graphic에서 control 등록
 			{
 				renderer.SetOrder(CONTROLN);
-				hWnd = eventHandler.RegisterFormControls(*iter, g_hWnd, g_hInst);
+				hWnd = eventHandler.RegisterFormControls(*iter, hChildView, g_hInst);
 				if (hWnd != (HWND)-1)
 				{
 					renderer.RegisterControls(hWnd);
@@ -528,7 +439,7 @@ void FillObjectData(std::list<char*>* data)
 				{
 					tmpHyperTxt = htHandler.MakeRichEdit(*iter, tmpFont, true);
 					SendMessage(tmpHyperTxt->_hRichEdit, EM_SETCHARFORMAT, (WPARAM)SCF_ALL, (LPARAM)&renderer.GetHyperTextFonts(0));
-					RichEditOldProc = (WNDPROC)SetWindowLongPtr(tmpHyperTxt->_hRichEdit, GWLP_WNDPROC, (LONG_PTR)EditSubProc);
+					OldRichEditProc = (WNDPROC)SetWindowLongPtr(tmpHyperTxt->_hRichEdit, GWLP_WNDPROC, (LONG_PTR)RichEditSubProc);
 				}
 				else
 				{
@@ -563,7 +474,7 @@ void SubmitProc(WPARAM wParam)
 		SetWindowText(hEdit, uriStr);
 		RequestProc();									// header와 body로 request
 		eventHandler.Cleanup();
-		InvalidateRect(g_hWnd, NULL, true);
+		InvalidateRect(hChildView, NULL, true);
 	}
 
 }
@@ -584,13 +495,12 @@ void LeavingHyperText(HWND hWnd)
 
 	cf2 = renderer.GetHyperTextFonts(0);
 	SendMessage(hWnd, EM_SETCHARFORMAT, (WPARAM)SCF_ALL, (LPARAM)&cf2);
-	
+
 	InvalidateRect(hWnd, NULL, false);
 }
 
 void InitWindow(HINSTANCE hInstance, int nCmdShow)
 {
-	LPCSTR lpszClass = "MainWindow";
 	WNDCLASS WndClass;
 
 	WndClass.cbClsExtra = 0;
@@ -599,14 +509,18 @@ void InitWindow(HINSTANCE hInstance, int nCmdShow)
 	WndClass.hCursor = LoadCursor(NULL, IDC_ARROW);
 	WndClass.hIcon = LoadIcon(NULL, IDI_APPLICATION);
 	WndClass.hInstance = hInstance;
-	WndClass.lpfnWndProc = WndProc;
+	WndClass.lpfnWndProc = MainWndProc;
 	WndClass.lpszClassName = lpszClass;
 	WndClass.lpszMenuName = NULL;
 	WndClass.style = CS_HREDRAW | CS_VREDRAW;
 	RegisterClass(&WndClass);
 
-	g_hWnd = CreateWindow(lpszClass, lpszClass, WS_OVERLAPPEDWINDOW | WS_HSCROLL | WS_VSCROLL /*WS_CLIPCHILDREN*/, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, NULL, (HMENU)NULL, hInstance, NULL);
-	ShowWindow(g_hWnd, nCmdShow);
+	WndClass.lpfnWndProc = ChildViewProc;
+	WndClass.lpszClassName = lpszChildView;
+	RegisterClass(&WndClass);
+
+	hMainWnd = CreateWindow(lpszClass, lpszClass, WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, NULL, (HMENU)NULL, hInstance, NULL);
+	ShowWindow(hMainWnd, nCmdShow);
 }
 
 void TrackMouse(HWND hwnd)
@@ -626,11 +540,10 @@ void HyperLinkEvent(HWND hWnd)
 	notFoundDrawFlag = false;
 	badRequestDrawFlag = false;
 
-	
 	uri = htHandler.GetLinkedUri(hWnd);
 	if (uri == NULL)
 	{
-		sprintf(uriStr, "http://%s:%d/index.html", socketProcessor.GetAddr(), socketProcessor.GetPortNum());
+		sprintf_s(uriStr, "http://%s:%d/index.html", socketProcessor.GetAddr(), socketProcessor.GetPortNum());
 	}
 	else
 	{
@@ -645,8 +558,219 @@ void HyperLinkEvent(HWND hWnd)
 	htHandler.Cleanup();
 
 	socketProcessor.SetRequestFlag(0);
-	
+
 	RequestProc();									// header와 body로 request
-	
-	InvalidateRect(g_hWnd, NULL, true);
+
+	InvalidateRect(hChildView, NULL, true);
 }
+
+LRESULT CALLBACK ChildViewProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
+{
+	switch (message)
+	{
+	case WM_CREATE:
+	{
+		SetScrollRange(hWnd, SB_VERT, 0, 0, TRUE);
+		SetScrollPos(hWnd, SB_VERT, 0, TRUE);
+		SetScrollRange(hWnd, SB_HORZ, 0, 0, TRUE);
+		SetScrollPos(hWnd, SB_HORZ, 0, TRUE);
+		return 0;
+	}
+	case WM_SIZE:
+	{
+		SetScrollDrawing();
+		return 0;
+	}
+	case WM_LBUTTONDOWN:
+	{
+		SetFocus(hWnd);
+		return 0;
+	}
+	case WM_COMMAND:																					// <form>의 submit(button control)의 처리
+	{
+		if (eventHandler.IsActionPushed(wParam) == true)												// eventHandler에서 Submit 버튼이 눌려졌는지 확인
+		{
+			SubmitProc(wParam);																		// <form>의 action을 method를 통해 요청
+		}
+		return 0;
+	}
+	case WM_VSCROLL:																					// 상하 scroll 이벤트 처리
+	{
+		ScrollEvent(hWnd, wParam, true);
+		return 0;
+
+	}
+	case WM_HSCROLL:																					// 상하 scroll 이벤트 처리
+	{
+		ScrollEvent(hWnd, wParam, false);
+		return 0;
+
+	}
+	case WM_USER + 1:																					// custom event : edit control에서 enter를 통해 GET 요청시 이벤트 처리
+	{
+		socketProcessor.SetRequestFlag(0);																		// 0으로 Set시 GET 요청
+		RequestProc();																				// Request 처리의 주요 procedure
+		SetTitle();																					// window title 변경
+		InvalidateRect(hWnd, NULL, true);
+		SetScrollDrawing();
+		return 0;
+	}
+	case WM_PAINT:
+	{
+		PAINTSTRUCT ps;
+		RECT rc = { 0, };
+
+		GetClientRect(hWnd, &rc);
+
+
+		HDC hdc = BeginPaint(hWnd, &ps);
+
+		if (drawFlag == false && notFoundDrawFlag == false && badRequestDrawFlag == false)
+		{
+			rc.top += 50;
+			DrawText(hdc, "Welcome To Web Browser\n", strlen("Welcome To Web Browser\n"), &rc, DT_CENTER);
+		}
+		else if (drawFlag == true)																		// OK시에 그려줌
+		{
+			renderer.DrawImages(hdc, rc);
+			if (renderer.GetFirstFlag() == false)
+			{
+				SetScrollDrawing();
+				renderer.SetFirstFlag(true);
+			}
+		}
+		else if (notFoundDrawFlag == true)
+		{
+			TextOut(hdc, 50, 50, "Not Found", strlen("Not Found"));
+		}
+		else if (badRequestDrawFlag == true)
+		{
+			TextOut(hdc, 50, 50, "Bad Request", strlen("Bad Request"));
+		}
+		EndPaint(hWnd, &ps);
+		return 0;
+	}
+	}
+
+	return DefWindowProc(hWnd, message, wParam, lParam);
+}
+
+LRESULT CALLBACK EditSubProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
+{
+	RECT rc = { 0, };
+	switch (iMessage)
+	{
+	case WM_KEYDOWN:
+		if (wParam == VK_RETURN)						// Enter시 edit에 입력되어 있는 string으로 접속 및 URI GET 요청
+		{
+			drawFlag = false;
+			notFoundDrawFlag = false;
+			badRequestDrawFlag = false;
+
+			bodySpliter.Cleanup();
+			socketProcessor.MemoryClear();
+			htmlParser.Cleanup();
+			eventHandler.Cleanup();
+			renderer.Cleanup();
+			htHandler.Cleanup();
+
+			memset(uriStr, 0, sizeof(uriStr));
+			GetWindowText(hWnd, uriStr, URLLENGTH);		// edit control로 부터 URI 입력
+			SendMessage(hChildView, WM_USER + 1, 0, 0);		// main window에 event message 전달
+			return 0;
+		}
+	}
+	return CallWindowProc(OldEditProc, hWnd, iMessage, wParam, lParam);
+}
+
+LRESULT CALLBACK RichEditSubProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
+{
+	static bool flag = false;
+	switch (iMessage)
+	{
+	case WM_LBUTTONDOWN:
+	{
+		flag = false;
+		HyperLinkEvent(hWnd);
+		return 0;
+	}
+	case WM_MOUSEMOVE:
+	{
+		SetCursor(LoadCursor(NULL, IDC_HAND));
+		if (flag == false)
+		{
+			printf("ENTERED\n");
+			TrackMouse(hWnd);
+			OnHyperText(hWnd);
+			flag = true;
+		}
+		return 0;
+	}
+	case WM_MOUSELEAVE:
+	{
+		if (flag == true)
+		{
+			printf("mouseLeave\n");
+			LeavingHyperText(hWnd);
+			flag = false;
+		}
+		return 0;
+	}
+	}
+	return CallWindowProc(OldRichEditProc, hWnd, iMessage, wParam, lParam);
+}
+
+LRESULT CALLBACK MainWndProc(HWND hWnd, UINT Message, WPARAM wParam, LPARAM lParam)
+{
+	switch (Message)
+	{
+	case WM_CREATE:
+	{
+		RECT rc = { 0, };
+		GetClientRect(hWnd, &rc);
+
+		hEdit = CreateWindow("edit", NULL, WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL,		// URI 입력용 edit control 생성
+			rc.left + 50, 10, rc.right - 50, 25, hWnd, (HMENU)ID_URI, g_hInst, NULL);
+
+		hUriStatic = CreateWindow("static", "URI", WS_CHILD | WS_VISIBLE | WS_BORDER | SS_CENTER, 0, 10, 50, 25, hWnd, (HMENU)ID_STATIC, g_hInst, NULL);
+
+		
+		hChildView = CreateWindow(lpszChildView, NULL, WS_CHILD | WS_VISIBLE | WS_HSCROLL | WS_VSCROLL,
+			0, 0, 0, 0, hWnd, (HMENU)0, g_hInst, NULL);
+
+		if (htHandler.InitHTHandler(hChildView, g_hInst) == false)
+		{
+			printf("hyper text init error\n");
+			socketProcessor.Cleanup();
+			renderer.ShutDownGdi();
+
+			return 1;
+		}
+		SetFocus(hEdit);
+
+		OldEditProc = (WNDPROC)SetWindowLongPtr(hEdit, GWLP_WNDPROC, (LONG_PTR)EditSubProc);		// edit control 상의 enter 처리를 해주기 위해 
+		return 0;
+	}
+	case WM_SIZE:
+	{
+		if (wParam != SIZE_MINIMIZED)
+		{
+			RECT rc = { 0, };
+			GetClientRect(hWnd, &rc);
+			MoveWindow(hUriStatic, 0, 10, 50, 25, TRUE);
+			MoveWindow(hEdit, rc.left + 50, 10, rc.right - 50, 25, TRUE);
+			MoveWindow(hChildView, rc.left, rc.top + 50, rc.right, rc.bottom - 50, TRUE);
+		}
+		return 0;
+	}
+	case WM_DESTROY:
+	{
+		PostQuitMessage(0);
+		return 0;
+	}
+
+	}
+
+	return (DefWindowProc(hWnd, Message, wParam, lParam));
+}
+

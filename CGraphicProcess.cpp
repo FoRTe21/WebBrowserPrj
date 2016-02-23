@@ -9,6 +9,9 @@ CGraphicProcess::CGraphicProcess()
 	m_hyperTexts.clear();
 
 	InitHyperTextFonts();
+
+	m_xScrollMax = 0;
+	m_yScrollMax = 0;
 	memset(m_fontD, 0, sizeof(m_fontD));
 	
 }
@@ -32,7 +35,10 @@ void CGraphicProcess::ShutDownGdi()
 
 void CGraphicProcess::Cleanup()
 {
-	
+	m_firstDrawing = false;
+	m_xScrollMax = 0;
+	m_yScrollMax = 0;
+
 	if (m_order.empty() == false)
 	{
 		m_order.clear();
@@ -70,9 +76,10 @@ void CGraphicProcess::SetOrder(eOrder order)
 
 void CGraphicProcess::RegisterImages(char* filename)
 {
+	size_t len = 0;
 	WCHAR* tmpName = NULL;
 	tmpName = new WCHAR[strlen(filename) + 1];
-	mbstowcs(tmpName, filename, strlen(filename) + 1);		// GDI+ 는 text를 등록할 때 WCHAR*로 등록되기 때문에 char* -> WCHAR*로 변환
+	mbstowcs_s(&len, tmpName, strlen(filename) + 1, filename, strlen(filename));
 	m_images.push_back(Image::FromFile(tmpName));
 
 	delete[] tmpName;
@@ -111,7 +118,7 @@ void CGraphicProcess::DrawImages(HDC hdc, RECT rt)
 	char tmpBuf[BUFSIZ] = { 0, };
 
 	pf.X = m_sPoint.X;
-	pf.Y = m_sPoint.Y + 50.0f;
+	pf.Y = m_sPoint.Y + 10.0f;
 	Graphics graphics(hdc);
 
 	imageIter = m_images.begin();
@@ -122,15 +129,9 @@ void CGraphicProcess::DrawImages(HDC hdc, RECT rt)
 	{
 		if ((*orderIter == HYPERTEXTN) && (hyperTextIter != m_hyperTexts.end()))
 		{
-			memset(tmpBuf, 0, sizeof(tmpBuf));
-			hOldFont = (HFONT)SelectObject(hdc, hyperTextIter->_hFont);
-			memset(&rc, 0, sizeof(RECT));
-			GetWindowText(hyperTextIter->_hRichEdit, tmpBuf, BUFSIZ);
-			DrawText(hdc, tmpBuf, strlen(tmpBuf), &rc, DT_CALCRECT | DT_EDITCONTROL | DT_SINGLELINE | DT_CENTER); 	// text를 찍기 위해서가 아니라 text의 범위(rect)를 얻어오기 위함.
-			
 			hWnd = hyperTextIter->_hRichEdit;
 			
-			SetWindowPos(hWnd, 0, pf.X, pf.Y, rc.right + 5, rc.bottom, SWP_NOZORDER | SWP_SHOWWINDOW);
+			SetWindowPos(hWnd, 0, pf.X, pf.Y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_SHOWWINDOW);				// 실제 rich edit 위치 설정해주는 부분
 			memset(&rc, 0, sizeof(RECT));
 			GetClientRect(hWnd, &rc);
 			pf.X += rc.right;
@@ -139,7 +140,6 @@ void CGraphicProcess::DrawImages(HDC hdc, RECT rt)
 				maxHeight = rc.bottom;
 			}
 			hyperTextIter++;
-			SelectObject(hdc, hOldFont);
 		}
 		else if ((*orderIter == IMAGEN) && (imageIter != m_images.end()))
 		{
@@ -172,12 +172,20 @@ void CGraphicProcess::DrawImages(HDC hdc, RECT rt)
 		}
 		else if (*orderIter == BRN)									// <BR> 태그이면 height 최대값만큼 y좌표값 증가
 		{
-			pf.X = rt.left;
+			pf.X = m_sPoint.X;
 			pf.Y += maxHeight;
 			maxHeight = 0;
 		}
+		if ((m_firstDrawing == false) && (m_xScrollMax < pf.X))
+		{
+			m_xScrollMax = pf.X;
+		}
 	}
 
+	if (m_firstDrawing == false)
+	{
+		m_yScrollMax = pf.Y + maxHeight;
+	}
 	graphics.ReleaseHDC(hdc);
 }
 
@@ -215,12 +223,12 @@ void CGraphicProcess::SetsPoint(bool init, float x, float y)
 {
 	if (init == true)
 	{
-		m_sPoint.X = x;
+		m_sPoint.X = x;					// 초기 위치 정함
 		m_sPoint.Y = y;
 	}
 	else
 	{
-		//m_sPoint.X = x;
+		m_sPoint.X += x;				// scroll 움직일때
 		m_sPoint.Y += y;
 	}
 }
@@ -252,4 +260,29 @@ CHARFORMAT2 CGraphicProcess::GetHyperTextFonts(int state)
 	case 1:
 		return m_hyperTextFormat[1];
 	}
+}
+
+int CGraphicProcess::GetXScrollMax()
+{
+	return m_xScrollMax;
+}
+
+int CGraphicProcess::GetYScrollMax()
+{
+	return m_yScrollMax;
+}
+
+int CGraphicProcess::GetFirstFlag()
+{
+	return m_firstDrawing;
+}
+
+void CGraphicProcess::SetFirstFlag(bool flag)
+{
+	if (flag == false)
+	{
+		m_xScrollMax = 0;
+		m_yScrollMax = 0;
+	}
+	m_firstDrawing = flag;
 }

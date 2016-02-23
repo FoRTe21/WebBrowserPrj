@@ -37,8 +37,12 @@ private:
 	HFONT m_fontD[FONTSNUM];					// fonts.
 
 	PointF m_sPoint;							// 출력 초기 위치
+	bool m_firstDrawing;
 	
-	CHARFORMAT2 m_hyperTextFormat[3];			// 마우스가 위에 있을 때 없을 때.
+	CHARFORMAT2 m_hyperTextFormat[3];			// 마우스가 위에 있을 때, 없을 때의 font.
+
+	int m_xScrollMax;
+	int m_yScrollMax;
 
 private:
 	void InitHyperTextFonts();
@@ -59,9 +63,14 @@ public:
 	void RegisterHyperTexts(HWND hRichEdit, char* text, HFONT hFont);			// Hyper text(rich edit) 데이터 등록
 
 	void DrawImages(HDC hdc, RECT rt);			// order순에 맞춰서 각종 데이터들 출력
-	HFONT CGraphicProcess::GetHFont(int order);					// m_fontD 멤버 변수에 들어있는 font 데이터 가져옴
+	HFONT GetHFont(int order);					// m_fontD 멤버 변수에 들어있는 font 데이터 가져옴
 	void SetsPoint(bool init, float x, float y);// 출력할 데이터의 초기 위치 지정.
 
 	CHARFORMAT2 GetHyperTextFonts(int state);
 	
+	int GetXScrollMax();
+	int GetYScrollMax();
+
+	void SetFirstFlag(bool flag);
+	int GetFirstFlag();
 };

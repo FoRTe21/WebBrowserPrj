@@ -94,7 +94,7 @@ hyperText* CHyperTextHandler::MakeRichEdit(char* text, HFONT hFont, bool isHyper
 {
 	hyperText* tmpHt;
 	hyperText forPushStruct;
-
+	char tmpBuf[BUFSIZ] = { 0, };
 	HWND hRichEdit;
 	char* refinedText = NULL;
 	
@@ -106,11 +106,17 @@ hyperText* CHyperTextHandler::MakeRichEdit(char* text, HFONT hFont, bool isHyper
 	refinedText = ConvertToOneLine(text);
 	tmpHt = new hyperText;
 
-			
-	
+	hdc = GetDC(m_hParentWnd);
+	hOldFont = (HFONT)SelectObject(hdc, hFont);
+	memset(&rc, 0, sizeof(RECT));
 	hRichEdit = CreateWindow(RICHEDIT_CLASS, refinedText, WS_CHILD | ES_READONLY , 0, 0, 0, 0, m_hParentWnd, (HMENU)m_numHT, m_hInst, NULL); // rich edit 생성
+	GetWindowText(hRichEdit, refinedText, strlen(refinedText) + 1);
+	DrawText(hdc, refinedText, strlen(refinedText), &rc, DT_CALCRECT | DT_EDITCONTROL | DT_SINGLELINE | DT_CENTER); 	// text를 찍기 위해서가 아니라 text의 범위(rect)를 얻어오기 위함.
+
+	SetWindowPos(hRichEdit, 0, 0, 0, rc.right + 5, rc.bottom, SWP_NOZORDER);				// 실제 rich edit 위치 설정해주는 부분
 	SendMessage(hRichEdit, WM_SETFONT, (WPARAM)hFont,TRUE);
 
+	SelectObject(hdc, hOldFont);
 	tmpHt->_hFont = hFont;
 	tmpHt->_linkedUri = m_tempUri;	
 	m_tempUri = NULL;
